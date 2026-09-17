@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Calorie Lens</title>
+<style>
+  :root{
+    --bg:#1a2332; --card:#243041; --card2:#2b3a50; --cyan:#00e5ff; --green:#3ddc84;
+    --red:#ff6b6b; --orange:#ffb020; --text:#e8edf5; --muted:#8fa1bd; --border:#324259;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding-bottom:90px;}
+  header{padding:20px 16px 10px;position:sticky;top:0;background:var(--bg);z-index:10;display:flex;justify-content:space-between;align-items:center;}
+  header h1{font-size:20px;margin:0;display:flex;align-items:center;gap:8px;}
+  header h1 span.dot{width:8px;height:8px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);}
+  .icon-btn{background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:10px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;}
+  main{padding:0 16px;max-width:520px;margin:0 auto;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:14px;}
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px;text-align:center;}
+  .stat .val{font-size:26px;font-weight:700;color:var(--cyan);}
+  .stat .lbl{font-size:12px;color:var(--muted);margin-top:2px;}
+  .progress-row{margin:10px 0;}
+  .progress-row .top{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-bottom:6px;}
+  .bar{height:10px;border-radius:6px;background:#182233;overflow:hidden;border:1px solid var(--border);}
+  .bar > div{height:100%;border-radius:6px;transition:width .3s;}
+  .bar.cal > div{background:linear-gradient(90deg,var(--cyan),#0090a8);}
+  .bar.prot > div{background:linear-gradient(90deg,var(--green),#1f9c56);}
+  .bar.over > div{background:linear-gradient(90deg,var(--red),#c94343);}
+  h2.section{font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:22px 0 10px;}
+  .meal{display:flex;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px;align-items:center;}
+  .meal img{width:56px;height:56px;border-radius:10px;object-fit:cover;background:#111;flex-shrink:0;}
+  .meal .info{flex:1;min-width:0;}
+  .meal .info .name{font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .meal .info .macros{font-size:12px;color:var(--muted);margin-top:3px;}
+  .meal .cals{font-weight:700;color:var(--cyan);font-size:15px;white-space:nowrap;}
+  .meal .del{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:4px 8px;}
+  .empty{text-align:center;color:var(--muted);padding:30px 10px;font-size:14px;}
+  .week-bars{display:flex;gap:8px;align-items:flex-end;height:120px;padding:10px 4px;}
+  .week-bars .colwrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .week-bars .col{width:100%;background:#182233;border-radius:6px 6px 0 0;position:relative;height:90px;display:flex;align-items:flex-end;overflow:hidden;border:1px solid var(--border);}
+  .week-bars .col > div{width:100%;background:linear-gradient(180deg,var(--cyan),#0090a8);border-radius:6px 6px 0 0;}
+  .week-bars .col.over > div{background:linear-gradient(180deg,var(--red),#c94343);}
+  .week-bars .lbl{font-size:11px;color:var(--muted);}
+  .fab{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--cyan);color:#04202a;border:none;border-radius:30px;padding:16px 28px;font-size:16px;font-weight:700;display:flex;align-items:center;gap:10px;box-shadow:0 6px 24px rgba(0,229,255,.35);cursor:pointer;z-index:20;}
+  .fab:active{transform:translateX(-50%) scale(.97);}
+  #fileInput{display:none;}
+  .modal-bg{position:fixed;inset:0;background:rgba(10,14,22,.7);display:none;align-items:flex-end;justify-content:center;z-index:100;}
+  .modal-bg.show{display:flex;}
+  .modal{background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:520px;max-height:88vh;overflow-y:auto;padding:20px;border-top:1px solid var(--border);}
+  .modal h3{margin:0 0 16px;font-size:18px;}
+  .field{margin-bottom:16px;}
+  .field label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;}
+  .field input,.field select{width:100%;background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:12px;font-size:15px;}
+  .btn-row{display:flex;gap:10px;margin-top:20px;}
+  .btn{flex:1;padding:14px;border-radius:12px;border:none;font-size:15px;font-weight:700;cursor:pointer;}
+  .btn.primary{background:var(--cyan);color:#04202a;}
+  .btn.ghost{background:var(--card2);color:var(--text);border:1px solid var(--border);}
+  .btn.danger{background:var(--red);color:#2a0505;}
+  .item-row{display:flex;gap:8px;align-items:center;background:var(--card2);border-radius:10px;padding:10px;margin-bottom:8px;}
+  .item-row .iname{flex:1;font-size:14px;}
+  .item-row input.small{width:64px;background:#182233;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px;font-size:13px;text-align:center;}
+  .loading{display:flex;flex-direction:column;align-items:center;gap:14px;padding:50px 10px;color:var(--muted);}
+  .spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--cyan);border-radius:50%;animation:spin 1s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .preview-img{width:100%;max-height:220px;object-fit:cover;border-radius:14px;margin-bottom:14px;}
+  .totals-strip{display:flex;justify-content:space-around;background:var(--card2);border-radius:10px;padding:10px;margin:12px 0;font-size:13px;}
+  .totals-strip div{text-align:center;}
+  .totals-strip b{display:block;font-size:16px;color:var(--cyan);}
+  .toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:var(--card2);border:1px solid var(--border);padding:10px 16px;border-radius:10px;font-size:13px;z-index:200;display:none;}
+  .banner{background:var(--card2);border:1px solid var(--orange);border-radius:12px;padding:12px;font-size:13px;color:var(--orange);margin-bottom:14px;display:none;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="dot"></span> Calorie Lens</h1>
+  <button class="icon-btn" id="settingsBtn">⚙️</button>
+</header>
+
+<main>
+  <div class="banner" id="noKeyBanner">⚠️ No API key set. Tap ⚙️ to add your free OpenRouter key.</div>
+
+  <div class="card">
+    <div class="progress-row">
+      <div class="top"><span>Calories today</span><span id="calText">0 / 0 kcal</span></div>
+      <div class="bar cal" id="calBar"><div style="width:0%"></div></div>
+    </div>
+    <div class="progress-row">
+      <div class="top"><span>Protein today</span><span id="protText">0 / 0 g</span></div>
+      <div class="bar prot" id="protBar"><div style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat"><div class="val" id="remainingCal">0</div><div class="lbl">kcal remaining</div></div>
+    <div class="stat"><div class="val" id="mealsToday">0</div><div class="lbl">meals logged today</div></div>
+  </div>
+
+  <h2 class="section">This Week</h2>
+  <div class="card">
+    <div class="week-bars" id="weekBars"></div>
+  </div>
+
+  <h2 class="section">Today's Meals</h2>
+  <div id="mealsList"></div>
+</main>
+
+<input type="file" id="fileInput" accept="image/*" capture="environment">
+<button class="fab" id="addBtn">📷 Log a Meal</button>
+
+<!-- Onboarding / Settings Modal -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal">
+    <h3>Settings & Targets</h3>
+    <div class="field">
+      <label>Daily calorie target (kcal)</label>
+      <input type="number" id="targetCal" placeholder="e.g. 2200">
+    </div>
+    <div class="field">
+      <label>Daily protein target (g)</label>
+      <input type="number" id="targetProt" placeholder="e.g. 150">
+    </div>
+    <div class="field">
+      <label>OpenRouter API key</label>
+      <input type="password" id="apiKey" placeholder="sk-or-v1-...">
+    </div>
+    <div class="field">
+      <label>Vision model</label>
+      <select id="modelSelect">
+        <option value="inclusionai/ling-3.0-flash-vl:free">Ling 3.0 Flash VL (free, recommended)</option>
+        <option value="google/gemma-4-31b-it:free">Gemma 4 31B (free)</option>
+        <option value="google/gemini-2.5-flash">Gemini 2.5 Flash (paid, more accurate)</option>
+        <option value="openai/gpt-4o">GPT-4o (paid, most accurate)</option>
+      </select>
+    </div>
+    <div class="btn-row">
+      <button class="btn primary" id="saveSettings">Save</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn danger" id="clearData">Clear all data</button>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin-top:14px;">Your API key and food log are stored only in this browser (localStorage). Nothing is sent anywhere except directly to OpenRouter when you log a meal.</p>
+  </div>
+</div>
+
+<!-- Capture / Review Modal -->
+<div class="modal-bg" id="captureModal">
+  <div class="modal" id="captureModalInner">
+    <!-- filled dynamically -->
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

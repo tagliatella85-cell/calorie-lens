@@ -1,0 +1,321 @@
+// ===== Calorie Lens — client-side food logger =====
+const LS_KEYS = { targets: 'cl_targets', apikey: 'cl_apikey', model: 'cl_model', log: 'cl_log' };
+const DEFAULT_MODEL = 'inclusionai/ling-3.0-flash-vl:free';
+
+function loadTargets(){ try{ return JSON.parse(localStorage.getItem(LS_KEYS.targets)) || {cal:2200, prot:150}; }catch(e){ return {cal:2200, prot:150}; } }
+function saveTargets(t){ localStorage.setItem(LS_KEYS.targets, JSON.stringify(t)); }
+function loadApiKey(){ return localStorage.getItem(LS_KEYS.apikey) || ''; }
+function saveApiKey(k){ localStorage.setItem(LS_KEYS.apikey, k); }
+function loadModel(){ return localStorage.getItem(LS_KEYS.model) || DEFAULT_MODEL; }
+function saveModel(m){ localStorage.setItem(LS_KEYS.model, m); }
+function loadLog(){ try{ return JSON.parse(localStorage.getItem(LS_KEYS.log)) || []; }catch(e){ return []; } }
+function saveLog(l){ localStorage.setItem(LS_KEYS.log, JSON.stringify(l)); }
+
+function todayStr(d){ d = d || new Date(); return d.toISOString().slice(0,10); }
+function dayLabel(dateStr){ const d = new Date(dateStr+'T00:00:00'); return d.toLocaleDateString(undefined,{weekday:'short'}); }
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display = 'block';
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(()=>{ t.style.display='none'; }, 2600);
+}
+
+// ---------- Rendering ----------
+function render(){
+  const targets = loadTargets();
+  const log = loadLog();
+  const today = todayStr();
+  const todaysMeals = log.filter(m => m.date === today);
+
+  const calSum = todaysMeals.reduce((s,m)=>s+m.total_calories,0);
+  const protSum = todaysMeals.reduce((s,m)=>s+m.total_protein_g,0);
+
+  document.getElementById('calText').textContent = `${Math.round(calSum)} / ${targets.cal} kcal`;
+  document.getElementById('protText').textContent = `${Math.round(protSum)} / ${targets.prot} g`;
+  const calPct = Math.min(100, (calSum/targets.cal)*100 || 0);
+  const protPct = Math.min(100, (protSum/targets.prot)*100 || 0);
+  const calBar = document.getElementById('calBar');
+  calBar.querySelector('div').style.width = calPct+'%';
+  calBar.classList.toggle('over', calSum > targets.cal);
+  document.getElementById('protBar').querySelector('div').style.width = protPct+'%';
+
+  document.getElementById('remainingCal').textContent = Math.max(0, Math.round(targets.cal - calSum));
+  document.getElementById('mealsToday').textContent = todaysMeals.length;
+
+  // meals list (today), most recent first
+  const listEl = document.getElementById('mealsList');
+  listEl.innerHTML = '';
+  if(todaysMeals.length === 0){
+    listEl.innerHTML = '<div class="empty">No meals logged today. Tap "Log a Meal" to take a photo.</div>';
+  } else {
+    [...todaysMeals].reverse().forEach(m=>{
+      const div = document.createElement('div');
+      div.className = 'meal';
+      const itemNames = m.items.map(i=>i.name).join(', ');
+      div.innerHTML = `
+        <img src="${m.thumb || ''}" onerror="this.style.display='none'">
+        <div class="info">
+          <div class="name">${itemNames}</div>
+          <div class="macros">P ${Math.round(m.total_protein_g)}g · C ${Math.round(m.total_carbs_g)}g · F ${Math.round(m.total_fat_g)}g</div>
+        </div>
+        <div class="cals">${Math.round(m.total_calories)}</div>
+        <button class="del" data-id="${m.id}">✕</button>
+      `;
+      listEl.appendChild(div);
+    });
+    listEl.querySelectorAll('.del').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const id = btn.getAttribute('data-id');
+        const newLog = loadLog().filter(m=>m.id !== id);
+        saveLog(newLog);
+        render();
+        toast('Meal removed');
+      });
+    });
+  }
+
+  // week bars: last 7 days
+  const weekEl = document.getElementById('weekBars');
+  weekEl.innerHTML = '';
+  const days = [];
+  for(let i=6;i>=0;i--){
+    const d = new Date(); d.setDate(d.getDate()-i);
+    days.push(todayStr(d));
+  }
+  const maxCal = Math.max(targets.cal, ...days.map(ds => log.filter(m=>m.date===ds).reduce((s,m)=>s+m.total_calories,0)), 1);
+  days.forEach(ds=>{
+    const dayTotal = log.filter(m=>m.date===ds).reduce((s,m)=>s+m.total_calories,0);
+    const pct = Math.max(2, (dayTotal / maxCal) * 100);
+    const over = dayTotal > targets.cal;
+    const colwrap = document.createElement('div');
+    colwrap.className = 'colwrap';
+    colwrap.innerHTML = `<div class="col ${over?'over':''}"><div style="height:${pct}%"></div></div><div class="lbl">${dayLabel(ds)}</div>`;
+    weekEl.appendChild(colwrap);
+  });
+
+  document.getElementById('noKeyBanner').style.display = loadApiKey() ? 'none' : 'block';
+}
+
+// ---------- Settings modal ----------
+function openSettings(){
+  const t = loadTargets();
+  document.getElementById('targetCal').value = t.cal;
+  document.getElementById('targetProt').value = t.prot;
+  document.getElementById('apiKey').value = loadApiKey();
+  document.getElementById('modelSelect').value = loadModel();
+  document.getElementById('settingsModal').classList.add('show');
+}
+document.getElementById('settingsBtn').addEventListener('click', openSettings);
+document.getElementById('settingsModal').addEventListener('click', (e)=>{ if(e.target.id==='settingsModal') e.target.classList.remove('show'); });
+
+document.getElementById('saveSettings').addEventListener('click', ()=>{
+  const cal = parseInt(document.getElementById('targetCal').value) || 2200;
+  const prot = parseInt(document.getElementById('targetProt').value) || 150;
+  saveTargets({cal, prot});
+  saveApiKey(document.getElementById('apiKey').value.trim());
+  saveModel(document.getElementById('modelSelect').value);
+  document.getElementById('settingsModal').classList.remove('show');
+  render();
+  toast('Settings saved');
+});
+
+document.getElementById('clearData').addEventListener('click', ()=>{
+  if(confirm('Delete all logged meals? This cannot be undone.')){
+    saveLog([]);
+    render();
+    toast('All meal data cleared');
+  }
+});
+
+// First run: open settings if no targets ever saved
+if(!localStorage.getItem(LS_KEYS.targets)){
+  setTimeout(openSettings, 300);
+}
+
+// ---------- Capture flow ----------
+const fileInput = document.getElementById('fileInput');
+document.getElementById('addBtn').addEventListener('click', ()=>{
+  if(!loadApiKey()){ openSettings(); toast('Add your API key first'); return; }
+  fileInput.value = '';
+  fileInput.click();
+});
+
+fileInput.addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const dataUrl = await fileToDataUrl(file);
+  showCaptureModal('loading', {dataUrl});
+  try{
+    const result = await analyzeFood(dataUrl);
+    showCaptureModal('review', {dataUrl, result});
+  }catch(err){
+    showCaptureModal('error', {dataUrl, error: err.message || String(err)});
+  }
+});
+
+function fileToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Downscale image client-side to keep payload small & fast
+function fileToDataUrl_compressed(dataUrl, maxDim=900, quality=0.82){
+  return new Promise((resolve)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      let w = img.width, h = img.height;
+      if(w > h && w > maxDim){ h = h*(maxDim/w); w = maxDim; }
+      else if(h > maxDim){ w = w*(maxDim/h); h = maxDim; }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.src = dataUrl;
+  });
+}
+
+const PROMPT = `Identify each distinct food item visible on the plate/bowl in this photo and estimate its portion size and nutrition. Respond ONLY with valid JSON, no markdown formatting, no code fences, no explanation — just the raw JSON object in exactly this schema:
+{"items":[{"name":"string","estimated_grams":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}],"total_calories":number,"total_protein_g":number,"total_carbs_g":number,"total_fat_g":number,"confidence":"low|medium|high"}
+Make total_calories/total_protein_g/total_carbs_g/total_fat_g the sum of the items. Be realistic about portion sizes based on typical plate/bowl dimensions visible in the photo.`;
+
+async function analyzeFood(dataUrl){
+  const compressed = await fileToDataUrl_compressed(dataUrl);
+  const apiKey = loadApiKey();
+  const model = loadModel();
+  const body = {
+    model,
+    messages: [{
+      role: 'user',
+      content: [
+        {type:'text', text: PROMPT},
+        {type:'image_url', image_url:{url: compressed}}
+      ]
+    }]
+  };
+  const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method:'POST',
+    headers:{
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type':'application/json',
+      'HTTP-Referer': location.origin,
+      'X-Title':'Calorie Lens'
+    },
+    body: JSON.stringify(body)
+  });
+  if(!resp.ok){
+    const errBody = await resp.text();
+    let msg = `API error ${resp.status}`;
+    try{ const j = JSON.parse(errBody); if(j.error && j.error.message) msg = j.error.message; }catch(e){}
+    throw new Error(msg);
+  }
+  const data = await resp.json();
+  let content = data.choices[0].message.content.trim();
+  content = content.replace(/^```json\s*/i,'').replace(/^```\s*/,'').replace(/```\s*$/,'');
+  let parsed;
+  try{ parsed = JSON.parse(content); }
+  catch(e){
+    const match = content.match(/\{[\s\S]*\}/);
+    if(match) parsed = JSON.parse(match[0]);
+    else throw new Error('Could not parse model response as JSON');
+  }
+  return parsed;
+}
+
+function showCaptureModal(state, data){
+  const modalBg = document.getElementById('captureModal');
+  const inner = document.getElementById('captureModalInner');
+  modalBg.classList.add('show');
+
+  if(state === 'loading'){
+    inner.innerHTML = `
+      <img class="preview-img" src="${data.dataUrl}">
+      <div class="loading"><div class="spinner"></div><div>Analyzing your plate…</div></div>
+    `;
+  } else if(state === 'error'){
+    inner.innerHTML = `
+      <img class="preview-img" src="${data.dataUrl}">
+      <h3>Couldn't analyze photo</h3>
+      <p style="color:var(--muted);font-size:14px;">${escapeHtml(data.error)}</p>
+      <div class="btn-row">
+        <button class="btn ghost" id="closeCaptureBtn">Close</button>
+      </div>
+    `;
+    document.getElementById('closeCaptureBtn').addEventListener('click', ()=> modalBg.classList.remove('show'));
+  } else if(state === 'review'){
+    const r = data.result;
+    inner.innerHTML = `
+      <img class="preview-img" src="${data.dataUrl}">
+      <h3>Confirm your meal</h3>
+      <div id="itemsEditor"></div>
+      <div class="totals-strip">
+        <div><b id="tCal">0</b>kcal</div>
+        <div><b id="tProt">0</b>protein</div>
+        <div><b id="tCarb">0</b>carbs</div>
+        <div><b id="tFat">0</b>fat</div>
+      </div>
+      <div class="btn-row">
+        <button class="btn ghost" id="discardBtn">Discard</button>
+        <button class="btn primary" id="confirmBtn">✓ Log this meal</button>
+      </div>
+    `;
+    const itemsEditor = document.getElementById('itemsEditor');
+    (r.items || []).forEach((item, idx)=>{
+      const row = document.createElement('div');
+      row.className = 'item-row';
+      row.innerHTML = `
+        <div class="iname">${escapeHtml(item.name)}</div>
+        <input type="number" class="small" data-idx="${idx}" data-field="calories" value="${Math.round(item.calories)}">
+      `;
+      itemsEditor.appendChild(row);
+    });
+    function recalcTotals(){
+      let cal=0, prot=0, carb=0, fat=0;
+      (r.items||[]).forEach(i=>{ cal+=Number(i.calories)||0; prot+=Number(i.protein_g)||0; carb+=Number(i.carbs_g)||0; fat+=Number(i.fat_g)||0; });
+      document.getElementById('tCal').textContent = Math.round(cal);
+      document.getElementById('tProt').textContent = Math.round(prot)+'g';
+      document.getElementById('tCarb').textContent = Math.round(carb)+'g';
+      document.getElementById('tFat').textContent = Math.round(fat)+'g';
+      r.total_calories = cal; r.total_protein_g = prot; r.total_carbs_g = carb; r.total_fat_g = fat;
+    }
+    itemsEditor.querySelectorAll('input').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const idx = inp.getAttribute('data-idx');
+        r.items[idx].calories = Number(inp.value)||0;
+        recalcTotals();
+      });
+    });
+    recalcTotals();
+
+    document.getElementById('discardBtn').addEventListener('click', ()=> modalBg.classList.remove('show'));
+    document.getElementById('confirmBtn').addEventListener('click', ()=>{
+      const log = loadLog();
+      log.push({
+        id: 'm_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+        date: todayStr(),
+        ts: Date.now(),
+        thumb: data.dataUrl,
+        items: r.items || [],
+        total_calories: r.total_calories || 0,
+        total_protein_g: r.total_protein_g || 0,
+        total_carbs_g: r.total_carbs_g || 0,
+        total_fat_g: r.total_fat_g || 0
+      });
+      saveLog(log);
+      modalBg.classList.remove('show');
+      render();
+      toast('Meal logged ✓');
+    });
+  }
+}
+document.getElementById('captureModal').addEventListener('click', (e)=>{ if(e.target.id==='captureModal') e.target.classList.remove('show'); });
+
+function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// ---------- init ----------
+render();
