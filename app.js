@@ -53,8 +53,11 @@ function render(){
       const div = document.createElement('div');
       div.className = 'meal';
       const itemNames = m.items.map(i=>i.name).join(', ');
+      const imgTag = m.thumb
+        ? `<img src="${m.thumb}" onerror="this.style.display='none'">`
+        : `<div style="width:56px;height:56px;border-radius:10px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">✏️</div>`;
       div.innerHTML = `
-        <img src="${m.thumb || ''}" onerror="this.style.display='none'">
+        ${imgTag}
         <div class="info">
           <div class="name">${itemNames}</div>
           <div class="macros">P ${Math.round(m.total_protein_g)}g · C ${Math.round(m.total_carbs_g)}g · F ${Math.round(m.total_fat_g)}g</div>
@@ -134,16 +137,51 @@ if(!localStorage.getItem(LS_KEYS.targets)){
 }
 
 // ---------- Capture flow ----------
-const fileInput = document.getElementById('fileInput');
+const cameraInput = document.getElementById('cameraInput');
+const uploadInput = document.getElementById('uploadInput');
+const actionSheet = document.getElementById('actionSheet');
+const manualModal = document.getElementById('manualModal');
+
 document.getElementById('addBtn').addEventListener('click', ()=>{
   if(!loadApiKey()){ openSettings(); toast('Add your API key first'); return; }
-  fileInput.value = '';
-  fileInput.click();
+  actionSheet.classList.add('show');
+});
+document.getElementById('actionCancel').addEventListener('click', ()=> actionSheet.classList.remove('show'));
+actionSheet.addEventListener('click', (e)=>{ if(e.target.id==='actionSheet') e.target.classList.remove('show'); });
+
+document.getElementById('actionTakePhoto').addEventListener('click', ()=>{
+  actionSheet.classList.remove('show');
+  cameraInput.value = '';
+  cameraInput.click();
+});
+document.getElementById('actionUploadPhoto').addEventListener('click', ()=>{
+  actionSheet.classList.remove('show');
+  uploadInput.value = '';
+  uploadInput.click();
+});
+document.getElementById('actionManual').addEventListener('click', ()=>{
+  actionSheet.classList.remove('show');
+  document.getElementById('manualText').value = '';
+  manualModal.classList.add('show');
+  setTimeout(()=> document.getElementById('manualText').focus(), 100);
+});
+document.getElementById('manualCancel').addEventListener('click', ()=> manualModal.classList.remove('show'));
+manualModal.addEventListener('click', (e)=>{ if(e.target.id==='manualModal') e.target.classList.remove('show'); });
+
+document.getElementById('manualSubmit').addEventListener('click', async ()=>{
+  const text = document.getElementById('manualText').value.trim();
+  if(!text){ toast('Describe what you ate first'); return; }
+  manualModal.classList.remove('show');
+  showCaptureModal('loading', {dataUrl: null, manualText: text});
+  try{
+    const result = await analyzeFoodText(text);
+    showCaptureModal('review', {dataUrl: null, result});
+  }catch(err){
+    showCaptureModal('error', {dataUrl: null, error: err.message || String(err)});
+  }
 });
 
-fileInput.addEventListener('change', async (e)=>{
-  const file = e.target.files[0];
-  if(!file) return;
+async function handlePhotoFile(file){
   const dataUrl = await fileToDataUrl(file);
   showCaptureModal('loading', {dataUrl});
   try{
@@ -152,7 +190,9 @@ fileInput.addEventListener('change', async (e)=>{
   }catch(err){
     showCaptureModal('error', {dataUrl, error: err.message || String(err)});
   }
-});
+}
+cameraInput.addEventListener('change', (e)=>{ const f=e.target.files[0]; if(f) handlePhotoFile(f); });
+uploadInput.addEventListener('change', (e)=>{ const f=e.target.files[0]; if(f) handlePhotoFile(f); });
 
 function fileToDataUrl(file){
   return new Promise((resolve,reject)=>{
@@ -198,6 +238,25 @@ async function analyzeFood(dataUrl){
       ]
     }]
   };
+  return callOpenRouter(body);
+}
+
+const TEXT_PROMPT = `The user is logging a meal they already ate, described in their own words (item names and quantities). Parse the description and estimate nutrition for each item. Respond ONLY with valid JSON, no markdown formatting, no code fences, no explanation — just the raw JSON object in exactly this schema:
+{"items":[{"name":"string","estimated_grams":number,"calories":number,"protein_g":number,"carbs_g":number,"fat_g":number}],"total_calories":number,"total_protein_g":number,"total_carbs_g":number,"total_fat_g":number,"confidence":"low|medium|high"}
+Make total_calories/total_protein_g/total_carbs_g/total_fat_g the sum of the items. If a quantity isn't given for an item, assume a typical single serving. User description: `;
+
+async function analyzeFoodText(text){
+  const apiKey = loadApiKey();
+  const model = loadModel();
+  const body = {
+    model,
+    messages: [{ role:'user', content: TEXT_PROMPT + text }]
+  };
+  return callOpenRouter(body);
+}
+
+async function callOpenRouter(body){
+  const apiKey = loadApiKey();
   const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method:'POST',
     headers:{
@@ -232,15 +291,19 @@ function showCaptureModal(state, data){
   const inner = document.getElementById('captureModalInner');
   modalBg.classList.add('show');
 
+  const previewHtml = data.dataUrl
+    ? `<img class="preview-img" src="${data.dataUrl}">`
+    : `<div class="preview-img" style="display:flex;align-items:center;justify-content:center;background:var(--card2);font-size:14px;color:var(--muted);">✏️ ${data.manualText ? escapeHtml(data.manualText) : 'Manual entry'}</div>`;
+
   if(state === 'loading'){
     inner.innerHTML = `
-      <img class="preview-img" src="${data.dataUrl}">
-      <div class="loading"><div class="spinner"></div><div>Analyzing your plate…</div></div>
+      ${previewHtml}
+      <div class="loading"><div class="spinner"></div><div>Analyzing${data.dataUrl ? ' your plate' : ' your meal'}…</div></div>
     `;
   } else if(state === 'error'){
     inner.innerHTML = `
-      <img class="preview-img" src="${data.dataUrl}">
-      <h3>Couldn't analyze photo</h3>
+      ${previewHtml}
+      <h3>Couldn't analyze meal</h3>
       <p style="color:var(--muted);font-size:14px;">${escapeHtml(data.error)}</p>
       <div class="btn-row">
         <button class="btn ghost" id="closeCaptureBtn">Close</button>
@@ -250,7 +313,7 @@ function showCaptureModal(state, data){
   } else if(state === 'review'){
     const r = data.result;
     inner.innerHTML = `
-      <img class="preview-img" src="${data.dataUrl}">
+      ${previewHtml}
       <h3>Confirm your meal</h3>
       <div id="itemsEditor"></div>
       <div class="totals-strip">
@@ -299,7 +362,7 @@ function showCaptureModal(state, data){
         id: 'm_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
         date: todayStr(),
         ts: Date.now(),
-        thumb: data.dataUrl,
+        thumb: data.dataUrl || '',
         items: r.items || [],
         total_calories: r.total_calories || 0,
         total_protein_g: r.total_protein_g || 0,

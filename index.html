@@ -107,8 +107,37 @@
   <div id="mealsList"></div>
 </main>
 
-<input type="file" id="fileInput" accept="image/*" capture="environment">
+<input type="file" id="cameraInput" accept="image/*" capture="environment">
+<input type="file" id="uploadInput" accept="image/*">
 <button class="fab" id="addBtn">📷 Log a Meal</button>
+
+<!-- Action sheet: choose how to log -->
+<div class="modal-bg" id="actionSheet">
+  <div class="modal">
+    <h3>Log a Meal</h3>
+    <div class="btn-row" style="flex-direction:column;">
+      <button class="btn primary" id="actionTakePhoto" style="margin-bottom:10px;">📷 Take a Photo Now</button>
+      <button class="btn ghost" id="actionUploadPhoto" style="margin-bottom:10px;">🖼️ Upload a Photo</button>
+      <button class="btn ghost" id="actionManual" style="margin-bottom:10px;">✏️ Log Manually (no photo)</button>
+      <button class="btn ghost" id="actionCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manual entry modal -->
+<div class="modal-bg" id="manualModal">
+  <div class="modal">
+    <h3>Log Manually</h3>
+    <div class="field">
+      <label>Describe what you ate (item, quantity for each)</label>
+      <textarea id="manualText" rows="4" style="width:100%;background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:12px;font-size:15px;resize:vertical;" placeholder="e.g. Greek yogurt 200g, banana 1 medium, honey 1 tbsp"></textarea>
+    </div>
+    <div class="btn-row">
+      <button class="btn ghost" id="manualCancel">Cancel</button>
+      <button class="btn primary" id="manualSubmit">Analyze</button>
+    </div>
+  </div>
+</div>
 
 <!-- Onboarding / Settings Modal -->
 <div class="modal-bg" id="settingsModal">
