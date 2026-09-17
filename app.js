@@ -1,5 +1,5 @@
 // ===== Calorie Lens — client-side food logger =====
-const LS_KEYS = { targets: 'cl_targets', apikey: 'cl_apikey', model: 'cl_model', log: 'cl_log' };
+const LS_KEYS = { targets: 'cl_targets', apikey: 'cl_apikey', model: 'cl_model', log: 'cl_log', activityLog: 'cl_activity_log' };
 const DEFAULT_MODEL = 'inclusionai/ling-3.0-flash-vl:free';
 
 function loadTargets(){ try{ return JSON.parse(localStorage.getItem(LS_KEYS.targets)) || {cal:2200, prot:150}; }catch(e){ return {cal:2200, prot:150}; } }
@@ -10,6 +10,8 @@ function loadModel(){ return localStorage.getItem(LS_KEYS.model) || DEFAULT_MODE
 function saveModel(m){ localStorage.setItem(LS_KEYS.model, m); }
 function loadLog(){ try{ return JSON.parse(localStorage.getItem(LS_KEYS.log)) || []; }catch(e){ return []; } }
 function saveLog(l){ localStorage.setItem(LS_KEYS.log, JSON.stringify(l)); }
+function loadActivityLog(){ try{ return JSON.parse(localStorage.getItem(LS_KEYS.activityLog)) || []; }catch(e){ return []; } }
+function saveActivityLog(l){ localStorage.setItem(LS_KEYS.activityLog, JSON.stringify(l)); }
 
 function todayStr(d){ d = d || new Date(); return d.toISOString().slice(0,10); }
 function dayLabel(dateStr){ const d = new Date(dateStr+'T00:00:00'); return d.toLocaleDateString(undefined,{weekday:'short'}); }
@@ -98,6 +100,53 @@ function render(){
   });
 
   document.getElementById('noKeyBanner').style.display = loadApiKey() ? 'none' : 'block';
+
+  // activities
+  const actLog = loadActivityLog();
+  const todaysActivities = actLog.filter(a => a.date === today);
+  const burnedSum = todaysActivities.reduce((s,a)=>s+(Number(a.calories_burned)||0),0);
+  document.getElementById('burnedToday').textContent = Math.round(burnedSum);
+  document.getElementById('activitiesToday').textContent = todaysActivities.length;
+
+  const actListEl = document.getElementById('activitiesList');
+  actListEl.innerHTML = '';
+  if(todaysActivities.length === 0){
+    actListEl.innerHTML = '<div class="empty">No activities logged today. Tap 🏃 to log a workout.</div>';
+  } else {
+    [...todaysActivities].reverse().forEach(a=>{
+      const div = document.createElement('div');
+      div.className = 'meal';
+      div.innerHTML = `
+        <div style="width:56px;height:56px;border-radius:10px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">${activityEmoji(a.type)}</div>
+        <div class="info">
+          <div class="name">${escapeHtml(a.name)}</div>
+          <div class="macros">${a.duration_min ? a.duration_min+' min' : ''}</div>
+        </div>
+        <div class="cals" style="color:var(--green);">-${Math.round(a.calories_burned)}</div>
+        <button class="del" data-id="${a.id}">✕</button>
+      `;
+      actListEl.appendChild(div);
+    });
+    actListEl.querySelectorAll('.del').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const id = btn.getAttribute('data-id');
+        const newLog = loadActivityLog().filter(a=>a.id !== id);
+        saveActivityLog(newLog);
+        render();
+        toast('Activity removed');
+      });
+    });
+  }
+}
+
+function activityEmoji(type){
+  const t = (type||'').toLowerCase();
+  if(t.includes('walk') || t.includes('treadmill') || t.includes('run')) return '🚶';
+  if(t.includes('bike') || t.includes('cycl')) return '🚴';
+  if(t.includes('swim')) return '🏊';
+  if(t.includes('gym') || t.includes('weight') || t.includes('strength')) return '🏋️';
+  if(t.includes('yoga')) return '🧘';
+  return '🏃';
 }
 
 // ---------- Settings modal ----------
@@ -424,6 +473,132 @@ function showCaptureModal(state, data){
 document.getElementById('captureModal').addEventListener('click', (e)=>{ if(e.target.id==='captureModal') e.target.classList.remove('show'); });
 
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// ---------- Activity logging flow ----------
+const activityModal = document.getElementById('activityModal');
+const activityReviewModal = document.getElementById('activityReviewModal');
+
+document.getElementById('addActivityBtn').addEventListener('click', ()=>{
+  if(!loadApiKey()){ openSettings(); toast('Add your API key first'); return; }
+  document.getElementById('activityText').value = '';
+  activityModal.classList.add('show');
+  setTimeout(()=> document.getElementById('activityText').focus(), 100);
+});
+document.getElementById('activityCancel').addEventListener('click', ()=> activityModal.classList.remove('show'));
+activityModal.addEventListener('click', (e)=>{ if(e.target.id==='activityModal') e.target.classList.remove('show'); });
+activityReviewModal.addEventListener('click', (e)=>{ if(e.target.id==='activityReviewModal') e.target.classList.remove('show'); });
+
+const ACTIVITY_PROMPT = `The user is logging physical activity/exercise they did, described in their own words. There may be multiple separate activities in one description. Parse each distinct activity and its duration and calories burned. If calories burned is stated by the user, use that number. If not stated, estimate realistically based on activity type and duration for an average adult. Respond ONLY with valid JSON, no markdown, no code fences, no explanation — just the raw JSON object in exactly this schema:
+{"activities":[{"name":"string (short label, e.g. 'Treadmill walk')","type":"string (walking|running|gym|swimming|biking|yoga|other)","duration_min":number,"calories_burned":number}]}
+User description: `;
+
+async function analyzeActivityText(text){
+  const model = loadModel();
+  const body = { model, messages: [{ role:'user', content: ACTIVITY_PROMPT + text }] };
+  return callOpenRouter(body);
+}
+
+document.getElementById('activitySubmit').addEventListener('click', async ()=>{
+  const text = document.getElementById('activityText').value.trim();
+  if(!text){ toast('Describe your activity first'); return; }
+  activityModal.classList.remove('show');
+  showActivityModal('loading', {text});
+  try{
+    const result = await analyzeActivityText(text);
+    showActivityModal('review', {text, result});
+  }catch(err){
+    showActivityModal('error', {text, error: err.message || String(err)});
+  }
+});
+
+function showActivityModal(state, data){
+  activityReviewModal.classList.add('show');
+  const inner = document.getElementById('activityReviewInner');
+
+  if(state === 'loading'){
+    inner.innerHTML = `
+      <div style="background:var(--card2);border-radius:14px;padding:14px;margin-bottom:14px;font-size:14px;color:var(--muted);">🏃 ${escapeHtml(data.text)}</div>
+      <div class="loading"><div class="spinner"></div><div>Analyzing your activity…</div></div>
+    `;
+  } else if(state === 'error'){
+    inner.innerHTML = `
+      <div style="background:var(--card2);border-radius:14px;padding:14px;margin-bottom:14px;font-size:14px;color:var(--muted);">🏃 ${escapeHtml(data.text)}</div>
+      <h3>Couldn't analyze activity</h3>
+      <p style="color:var(--muted);font-size:14px;">${escapeHtml(data.error)}</p>
+      <div class="btn-row">
+        <button class="btn ghost" id="actCloseBtn">Close</button>
+        <button class="btn primary" id="actRetryBtn">↻ Retry</button>
+      </div>
+    `;
+    document.getElementById('actCloseBtn').addEventListener('click', ()=> activityReviewModal.classList.remove('show'));
+    document.getElementById('actRetryBtn').addEventListener('click', async ()=>{
+      showActivityModal('loading', {text: data.text});
+      try{
+        const result = await analyzeActivityText(data.text);
+        showActivityModal('review', {text: data.text, result});
+      }catch(err){
+        showActivityModal('error', {text: data.text, error: err.message || String(err)});
+      }
+    });
+  } else if(state === 'review'){
+    const r = data.result;
+    const activities = r.activities || [];
+    inner.innerHTML = `
+      <h3>Confirm your activities</h3>
+      <div id="activitiesEditor"></div>
+      <div class="totals-strip">
+        <div><b id="aTotalBurned">0</b>kcal burned</div>
+      </div>
+      <div class="btn-row">
+        <button class="btn ghost" id="actDiscardBtn">Discard</button>
+        <button class="btn primary" id="actConfirmBtn">✓ Log activities</button>
+      </div>
+    `;
+    const editor = document.getElementById('activitiesEditor');
+    activities.forEach((a, idx)=>{
+      const row = document.createElement('div');
+      row.className = 'item-row';
+      row.innerHTML = `
+        <div class="iname">${escapeHtml(a.name)} ${a.duration_min ? `(${a.duration_min}min)` : ''}</div>
+        <input type="number" class="small" data-idx="${idx}" value="${Math.round(a.calories_burned)||0}">
+      `;
+      editor.appendChild(row);
+    });
+    function recalc(){
+      let total = 0;
+      activities.forEach(a=> total += Number(a.calories_burned)||0);
+      document.getElementById('aTotalBurned').textContent = Math.round(total);
+    }
+    editor.querySelectorAll('input').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const idx = inp.getAttribute('data-idx');
+        activities[idx].calories_burned = Number(inp.value)||0;
+        recalc();
+      });
+    });
+    recalc();
+
+    document.getElementById('actDiscardBtn').addEventListener('click', ()=> activityReviewModal.classList.remove('show'));
+    document.getElementById('actConfirmBtn').addEventListener('click', ()=>{
+      const actLog = loadActivityLog();
+      activities.forEach(a=>{
+        actLog.push({
+          id: 'a_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+          date: todayStr(),
+          ts: Date.now(),
+          name: a.name,
+          type: a.type || 'other',
+          duration_min: a.duration_min || 0,
+          calories_burned: a.calories_burned || 0
+        });
+      });
+      saveActivityLog(actLog);
+      activityReviewModal.classList.remove('show');
+      render();
+      toast('Activity logged ✓');
+    });
+  }
+}
 
 // ---------- init ----------
 render();

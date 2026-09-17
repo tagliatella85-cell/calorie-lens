@@ -98,6 +98,11 @@
     <div class="stat"><div class="val" id="mealsToday">0</div><div class="lbl">meals logged today</div></div>
   </div>
 
+  <div class="stat-grid" style="margin-top:12px;">
+    <div class="stat"><div class="val" id="burnedToday" style="color:var(--green);">0</div><div class="lbl">kcal burned today</div></div>
+    <div class="stat"><div class="val" id="activitiesToday" style="color:var(--green);">0</div><div class="lbl">activities logged today</div></div>
+  </div>
+
   <h2 class="section">This Week</h2>
   <div class="card">
     <div class="week-bars" id="weekBars"></div>
@@ -105,11 +110,17 @@
 
   <h2 class="section">Today's Meals</h2>
   <div id="mealsList"></div>
+
+  <h2 class="section">Today's Activities</h2>
+  <div id="activitiesList"></div>
 </main>
 
 <input type="file" id="cameraInput" accept="image/*" capture="environment">
 <input type="file" id="uploadInput" accept="image/*">
-<button class="fab" id="addBtn">📷 Log a Meal</button>
+<div style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;gap:10px;z-index:20;">
+  <button class="fab" id="addActivityBtn" style="position:static;transform:none;background:var(--green);box-shadow:0 6px 24px rgba(61,220,132,.35);padding:16px 20px;">🏃</button>
+  <button class="fab" id="addBtn" style="position:static;transform:none;">📷 Log a Meal</button>
+</div>
 
 <!-- Action sheet: choose how to log -->
 <div class="modal-bg" id="actionSheet">
@@ -136,6 +147,28 @@
       <button class="btn ghost" id="manualCancel">Cancel</button>
       <button class="btn primary" id="manualSubmit">Analyze</button>
     </div>
+  </div>
+</div>
+
+<!-- Activity entry modal -->
+<div class="modal-bg" id="activityModal">
+  <div class="modal">
+    <h3>Log Activity</h3>
+    <div class="field">
+      <label>Describe your activity (type, duration, calories burned if known)</label>
+      <textarea id="activityText" rows="4" style="width:100%;background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:12px;font-size:15px;resize:vertical;" placeholder="e.g. 40 min treadmill walk, burned 400 cal. 30 min gym, burned 200 cal."></textarea>
+    </div>
+    <div class="btn-row">
+      <button class="btn ghost" id="activityCancel">Cancel</button>
+      <button class="btn primary" id="activitySubmit">Analyze</button>
+    </div>
+  </div>
+</div>
+
+<!-- Activity review modal -->
+<div class="modal-bg" id="activityReviewModal">
+  <div class="modal" id="activityReviewInner">
+    <!-- filled dynamically -->
   </div>
 </div>
 
