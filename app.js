@@ -177,7 +177,7 @@ document.getElementById('manualSubmit').addEventListener('click', async ()=>{
     const result = await analyzeFoodText(text);
     showCaptureModal('review', {dataUrl: null, result});
   }catch(err){
-    showCaptureModal('error', {dataUrl: null, error: err.message || String(err)});
+    showCaptureModal('error', {dataUrl: null, error: err.message || String(err), manualText: text});
   }
 });
 
@@ -257,33 +257,58 @@ async function analyzeFoodText(text){
 
 async function callOpenRouter(body){
   const apiKey = loadApiKey();
-  const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method:'POST',
-    headers:{
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type':'application/json',
-      'HTTP-Referer': location.origin,
-      'X-Title':'Calorie Lens'
-    },
-    body: JSON.stringify(body)
-  });
-  if(!resp.ok){
-    const errBody = await resp.text();
-    let msg = `API error ${resp.status}`;
-    try{ const j = JSON.parse(errBody); if(j.error && j.error.message) msg = j.error.message; }catch(e){}
-    throw new Error(msg);
+  const FALLBACK_MODEL = 'inclusionai/ling-3.0-flash-vl:free';
+  async function doCall(model){
+    const b = {...body, model};
+    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method:'POST',
+      headers:{
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type':'application/json',
+        'HTTP-Referer': location.origin,
+        'X-Title':'Calorie Lens'
+      },
+      body: JSON.stringify(b)
+    });
+    if(!resp.ok){
+      const errBody = await resp.text();
+      let msg = `API error ${resp.status}`;
+      let isRateLimit = resp.status === 429;
+      try{
+        const j = JSON.parse(errBody);
+        if(j.error && j.error.message) msg = j.error.message;
+        if(j.error && j.error.metadata && j.error.metadata.raw && /rate.?limit/i.test(j.error.metadata.raw)) isRateLimit = true;
+      }catch(e){}
+      const err = new Error(msg);
+      err.isRateLimit = isRateLimit;
+      throw err;
+    }
+    const data = await resp.json();
+    let content = data.choices[0].message.content.trim();
+    content = content.replace(/^```json\s*/i,'').replace(/^```\s*/,'').replace(/```\s*$/,'');
+    let parsed;
+    try{ parsed = JSON.parse(content); }
+    catch(e){
+      const match = content.match(/\{[\s\S]*\}/);
+      if(match) parsed = JSON.parse(match[0]);
+      else throw new Error('Could not parse model response as JSON');
+    }
+    return parsed;
   }
-  const data = await resp.json();
-  let content = data.choices[0].message.content.trim();
-  content = content.replace(/^```json\s*/i,'').replace(/^```\s*/,'').replace(/```\s*$/,'');
-  let parsed;
-  try{ parsed = JSON.parse(content); }
-  catch(e){
-    const match = content.match(/\{[\s\S]*\}/);
-    if(match) parsed = JSON.parse(match[0]);
-    else throw new Error('Could not parse model response as JSON');
+
+  try{
+    return await doCall(body.model);
+  }catch(err){
+    // If the chosen free model is rate-limited/unavailable upstream, silently retry once with a known-reliable free model
+    if(err.isRateLimit && body.model !== FALLBACK_MODEL){
+      try{
+        return await doCall(FALLBACK_MODEL);
+      }catch(err2){
+        throw new Error(`${err.message} (fallback also failed: ${err2.message})`);
+      }
+    }
+    throw err;
   }
-  return parsed;
 }
 
 function showCaptureModal(state, data){
@@ -307,9 +332,29 @@ function showCaptureModal(state, data){
       <p style="color:var(--muted);font-size:14px;">${escapeHtml(data.error)}</p>
       <div class="btn-row">
         <button class="btn ghost" id="closeCaptureBtn">Close</button>
+        <button class="btn primary" id="retryCaptureBtn">↻ Retry</button>
       </div>
     `;
     document.getElementById('closeCaptureBtn').addEventListener('click', ()=> modalBg.classList.remove('show'));
+    document.getElementById('retryCaptureBtn').addEventListener('click', async ()=>{
+      if(data.manualText){
+        showCaptureModal('loading', {dataUrl: null, manualText: data.manualText});
+        try{
+          const result = await analyzeFoodText(data.manualText);
+          showCaptureModal('review', {dataUrl: null, result});
+        }catch(err){
+          showCaptureModal('error', {dataUrl: null, error: err.message || String(err), manualText: data.manualText});
+        }
+      } else if(data.dataUrl){
+        showCaptureModal('loading', {dataUrl: data.dataUrl});
+        try{
+          const result = await analyzeFood(data.dataUrl);
+          showCaptureModal('review', {dataUrl: data.dataUrl, result});
+        }catch(err){
+          showCaptureModal('error', {dataUrl: data.dataUrl, error: err.message || String(err)});
+        }
+      }
+    });
   } else if(state === 'review'){
     const r = data.result;
     inner.innerHTML = `
